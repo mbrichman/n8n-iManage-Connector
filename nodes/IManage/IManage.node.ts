@@ -20,6 +20,104 @@ interface IManageCredentials {
 	library?: string;
 }
 
+// ============================================
+// DOMAIN OBJECTS (Smart Connector)
+// ============================================
+
+interface IManageDocument {
+	_type: 'imanage.document';
+	// Identity
+	id: string;
+	documentNumber: number;
+	version: number;
+	library: string;
+	// Content
+	name: string;
+	extension: string;
+	size: number;
+	pageCount?: number;
+	// Classification
+	class: string;
+	subclass?: string;
+	documentType?: string;
+	// Matter Context
+	clientNumber?: string;
+	clientName?: string;
+	matterNumber?: string;
+	matterName?: string;
+	workspaceId?: string;
+	workspaceName?: string;
+	// People
+	author: string;
+	authorEmail?: string;
+	operator?: string;
+	// Dates
+	createdDate: string;
+	modifiedDate: string;
+	// Capabilities
+	_capabilities: {
+		canDownload: boolean;
+		canEdit: boolean;
+		canDelete: boolean;
+		canCheckout: boolean;
+	};
+	// URLs
+	_urls: {
+		download: string;
+		view: string;
+		api: string;
+	};
+}
+
+interface IManageWorkspace {
+	_type: 'imanage.workspace';
+	id: string;
+	library: string;
+	name: string;
+	description?: string;
+	clientNumber?: string;
+	clientName?: string;
+	matterNumber?: string;
+	matterName?: string;
+	owner: string;
+	createdDate: string;
+	modifiedDate: string;
+	documentCount?: number;
+	folderCount?: number;
+	_capabilities: {
+		canAddDocuments: boolean;
+		canCreateFolders: boolean;
+		canDelete: boolean;
+	};
+	_urls: {
+		view: string;
+		api: string;
+	};
+}
+
+interface IManageFolder {
+	_type: 'imanage.folder';
+	id: string;
+	library: string;
+	name: string;
+	folderType: 'regular' | 'search' | 'tab';
+	workspaceId?: string;
+	workspaceName?: string;
+	parentFolderId?: string;
+	path?: string;
+	documentCount?: number;
+	subfolderCount?: number;
+	_capabilities: {
+		canAddDocuments: boolean;
+		canCreateSubfolders: boolean;
+		canDelete: boolean;
+	};
+	_urls: {
+		view: string;
+		api: string;
+	};
+}
+
 interface DiscoveryResponse {
 	data: {
 		user?: {
@@ -36,6 +134,152 @@ interface DiscoveryResponse {
 			}>;
 		};
 	};
+}
+
+// ============================================
+// TRANSFORMERS (API Response → Domain Objects)
+// ============================================
+
+function transformDocument(raw: IDataObject, baseUrl: string, customerId: string): IManageDocument {
+	// Parse ID components: "ACTIVE!12345.1" → library=ACTIVE, docNum=12345, version=1
+	const id = String(raw.id || raw.document_id || '');
+	const [libraryPart, docPart] = id.split('!');
+	const [docNumStr, versionStr] = (docPart || '').split('.');
+	const library = libraryPart || String(raw.database || '');
+	const documentNumber = parseInt(docNumStr, 10) || 0;
+	const version = parseInt(versionStr || String(raw.version || '1'), 10);
+
+	// Extract operations if available
+	const ops = (raw.operations || raw.allowed_operations || {}) as IDataObject;
+
+	return {
+		_type: 'imanage.document',
+		// Identity
+		id,
+		documentNumber,
+		version,
+		library,
+		// Content
+		name: String(raw.name || raw.document_name || ''),
+		extension: String(raw.extension || raw.file_extension || ''),
+		size: Number(raw.size || raw.file_size || 0),
+		pageCount: raw.page_count ? Number(raw.page_count) : undefined,
+		// Classification
+		class: String(raw.class || raw.document_class || 'DOCUMENT'),
+		subclass: raw.subclass ? String(raw.subclass) : undefined,
+		documentType: raw.type || raw.document_type ? String(raw.type || raw.document_type) : undefined,
+		// Matter Context
+		clientNumber: raw.custom1 ? String(raw.custom1) : undefined,
+		clientName: raw.custom1_description ? String(raw.custom1_description) : undefined,
+		matterNumber: raw.custom2 ? String(raw.custom2) : undefined,
+		matterName: raw.custom2_description ? String(raw.custom2_description) : undefined,
+		workspaceId: raw.workspace_id ? String(raw.workspace_id) : undefined,
+		workspaceName: raw.workspace_name ? String(raw.workspace_name) : undefined,
+		// People
+		author: String(raw.author || raw.author_description || ''),
+		authorEmail: raw.author_email ? String(raw.author_email) : undefined,
+		operator: raw.operator || raw.operator_description ? String(raw.operator || raw.operator_description) : undefined,
+		// Dates
+		createdDate: String(raw.create_date || raw.created_date || ''),
+		modifiedDate: String(raw.edit_date || raw.modified_date || raw.last_user_date || ''),
+		// Capabilities
+		_capabilities: {
+			canDownload: ops.download !== false && ops.view !== false,
+			canEdit: ops.edit !== false && ops.modify !== false,
+			canDelete: ops.delete !== false,
+			canCheckout: ops.checkout !== false && ops.lock !== false,
+		},
+		// URLs
+		_urls: {
+			download: `${baseUrl}/work/api/v2/customers/${customerId}/libraries/${library}/documents/${id}/download`,
+			view: `${baseUrl}/work/web/r/${library}/document/${documentNumber}/${version}`,
+			api: `${baseUrl}/work/api/v2/customers/${customerId}/libraries/${library}/documents/${id}`,
+		},
+	};
+}
+
+function transformWorkspace(raw: IDataObject, baseUrl: string, customerId: string): IManageWorkspace {
+	const id = String(raw.id || raw.workspace_id || '');
+	const [libraryPart] = id.split('!');
+	const library = libraryPart || String(raw.database || '');
+
+	const ops = (raw.operations || raw.allowed_operations || {}) as IDataObject;
+
+	return {
+		_type: 'imanage.workspace',
+		id,
+		library,
+		name: String(raw.name || raw.workspace_name || ''),
+		description: raw.description ? String(raw.description) : undefined,
+		clientNumber: raw.custom1 ? String(raw.custom1) : undefined,
+		clientName: raw.custom1_description ? String(raw.custom1_description) : undefined,
+		matterNumber: raw.custom2 ? String(raw.custom2) : undefined,
+		matterName: raw.custom2_description ? String(raw.custom2_description) : undefined,
+		owner: String(raw.owner || raw.owner_description || ''),
+		createdDate: String(raw.create_date || raw.created_date || ''),
+		modifiedDate: String(raw.edit_date || raw.modified_date || ''),
+		documentCount: raw.document_count !== undefined ? Number(raw.document_count) : undefined,
+		folderCount: raw.folder_count !== undefined ? Number(raw.folder_count) : undefined,
+		_capabilities: {
+			canAddDocuments: ops.add_document !== false,
+			canCreateFolders: ops.create_folder !== false && ops.add_folder !== false,
+			canDelete: ops.delete !== false,
+		},
+		_urls: {
+			view: `${baseUrl}/work/web/r/${library}/workspace/${id.split('!')[1] || id}`,
+			api: `${baseUrl}/work/api/v2/customers/${customerId}/libraries/${library}/workspaces/${id}`,
+		},
+	};
+}
+
+function transformFolder(raw: IDataObject, baseUrl: string, customerId: string): IManageFolder {
+	const id = String(raw.id || raw.folder_id || '');
+	const [libraryPart] = id.split('!');
+	const library = libraryPart || String(raw.database || '');
+
+	// Determine folder type
+	let folderType: 'regular' | 'search' | 'tab' = 'regular';
+	const rawType = String(raw.folder_type || raw.type || raw.wstype || '').toLowerCase();
+	if (rawType.includes('search')) folderType = 'search';
+	else if (rawType.includes('tab')) folderType = 'tab';
+
+	const ops = (raw.operations || raw.allowed_operations || {}) as IDataObject;
+
+	return {
+		_type: 'imanage.folder',
+		id,
+		library,
+		name: String(raw.name || raw.folder_name || ''),
+		folderType,
+		workspaceId: raw.workspace_id ? String(raw.workspace_id) : undefined,
+		workspaceName: raw.workspace_name ? String(raw.workspace_name) : undefined,
+		parentFolderId: raw.parent_id ? String(raw.parent_id) : undefined,
+		path: raw.path ? String(raw.path) : undefined,
+		documentCount: raw.document_count !== undefined ? Number(raw.document_count) : undefined,
+		subfolderCount: raw.subfolder_count !== undefined ? Number(raw.subfolder_count) : undefined,
+		_capabilities: {
+			canAddDocuments: ops.add_document !== false,
+			canCreateSubfolders: ops.create_folder !== false,
+			canDelete: ops.delete !== false,
+		},
+		_urls: {
+			view: `${baseUrl}/work/web/r/${library}/folder/${id.split('!')[1] || id}`,
+			api: `${baseUrl}/work/api/v2/customers/${customerId}/libraries/${library}/folders/${id}`,
+		},
+	};
+}
+
+// Transform an array of raw items to domain objects
+function transformDocuments(items: IDataObject[], baseUrl: string, customerId: string): IManageDocument[] {
+	return items.map(item => transformDocument(item, baseUrl, customerId));
+}
+
+function transformWorkspaces(items: IDataObject[], baseUrl: string, customerId: string): IManageWorkspace[] {
+	return items.map(item => transformWorkspace(item, baseUrl, customerId));
+}
+
+function transformFolders(items: IDataObject[], baseUrl: string, customerId: string): IManageFolder[] {
+	return items.map(item => transformFolder(item, baseUrl, customerId));
 }
 
 export class IManage implements INodeType {
@@ -791,9 +1035,11 @@ export class IManage implements INodeType {
 							returnFullResponse: true,
 						});
 
-						const data = (docMeta.data || docMeta) as IDataObject;
-						const fileName = `${data.name || documentId}.${data.extension || 'bin'}`;
-						const mimeType = getMimeType(data.extension as string);
+						// Transform to domain object
+						const rawData = (docMeta.data || docMeta) as IDataObject;
+						const doc = transformDocument(rawData, credentials.baseUrl, customerId || '');
+						const fileName = `${doc.name || documentId}.${doc.extension || 'bin'}`;
+						const mimeType = getMimeType(doc.extension);
 
 						const binaryData = await this.helpers.prepareBinaryData(
 							Buffer.from(response.body as Buffer),
@@ -802,7 +1048,7 @@ export class IManage implements INodeType {
 						);
 
 						returnData.push({
-							json: data,
+							json: doc as unknown as IDataObject,
 							binary: {
 								[binaryPropertyName]: binaryData,
 							},
@@ -1015,26 +1261,72 @@ export class IManage implements INodeType {
 					throw new Error(`Unknown resource: ${resource}`);
 				}
 
-				// Handle response data
+				// Handle response data with smart transformation
 				if (responseData !== undefined) {
 					const rawData = (responseData as IDataObject).data || responseData;
+
+					// Extract items from response (handle both single objects and arrays/results)
+					let items: IDataObject[] = [];
 					if (Array.isArray(rawData)) {
-						// Direct array response (e.g., libraries list)
-						for (const item of rawData) {
-							returnData.push({ json: item as IDataObject });
-						}
+						items = rawData as IDataObject[];
 					} else if (typeof rawData === 'object' && rawData !== null) {
-						// Check for nested results
 						const dataObj = rawData as IDataObject;
 						if (dataObj.results && Array.isArray(dataObj.results)) {
-							for (const item of dataObj.results as IDataObject[]) {
-								returnData.push({ json: item });
+							items = dataObj.results as IDataObject[];
+						} else {
+							items = [dataObj];
+						}
+					}
+
+					// Transform based on resource type
+					if (resource === 'document') {
+						const docs = transformDocuments(items, credentials.baseUrl, customerId || '');
+						for (const doc of docs) {
+							returnData.push({ json: doc as unknown as IDataObject });
+						}
+					} else if (resource === 'workspace') {
+						if (operation === 'getChildren') {
+							// Workspace children can be folders/tabs - transform as folders
+							const folders = transformFolders(items, credentials.baseUrl, customerId || '');
+							for (const folder of folders) {
+								returnData.push({ json: folder as unknown as IDataObject });
 							}
 						} else {
-							returnData.push({ json: dataObj });
+							const workspaces = transformWorkspaces(items, credentials.baseUrl, customerId || '');
+							for (const ws of workspaces) {
+								returnData.push({ json: ws as unknown as IDataObject });
+							}
+						}
+					} else if (resource === 'folder') {
+						if (operation === 'getChildren') {
+							// Folder children can be documents or subfolders
+							// Separate by wstype or class
+							for (const item of items) {
+								const itemType = String(item.wstype || item.type || '').toLowerCase();
+								if (itemType === 'document' || item.extension || item.document_number) {
+									const doc = transformDocument(item, credentials.baseUrl, customerId || '');
+									returnData.push({ json: doc as unknown as IDataObject });
+								} else {
+									const folder = transformFolder(item, credentials.baseUrl, customerId || '');
+									returnData.push({ json: folder as unknown as IDataObject });
+								}
+							}
+						} else {
+							const folders = transformFolders(items, credentials.baseUrl, customerId || '');
+							for (const folder of folders) {
+								returnData.push({ json: folder as unknown as IDataObject });
+							}
+						}
+					} else if (resource === 'discovery') {
+						// Discovery returns raw data (no transformation)
+						for (const item of items) {
+							returnData.push({ json: item });
 						}
 					} else {
-						returnData.push({ json: responseData as IDataObject });
+						// Fallback for unknown resources
+						for (const item of items) {
+							returnData.push({ json: item });
+						}
 					}
 				}
 			} catch (error) {

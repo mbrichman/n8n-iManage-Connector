@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-imanage",
-  "version": "0.1.0",
-  "description": "n8n nodes for iManage Work API integration",
+  "version": "0.2.0",
+  "description": "n8n nodes for iManage Work API integration with smart domain objects",
   "keywords": [
     "n8n-community-node-package",
     "imanage",
@@ -9,13 +9,13 @@
     "legal-tech"
   ],
   "license": "MIT",
-  "homepage": "",
+  "homepage": "https://github.com/mbrichman/n8n-iManage-Connector",
   "author": {
     "name": "Mark Richman"
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "git+https://github.com/mbrichman/n8n-iManage-Connector.git"
   },
   "main": "dist/index.js",
   "scripts": {
