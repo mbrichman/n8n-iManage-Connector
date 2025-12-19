@@ -7,6 +7,9 @@ import type {
 	IDataObject,
 	IHttpRequestOptions,
 } from 'n8n-workflow';
+import { writeFile, mkdir } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 interface IManageCredentials {
 	baseUrl: string;
@@ -54,6 +57,13 @@ interface IManageDocument {
 	// Dates
 	createdDate: string;
 	modifiedDate: string;
+	// File (populated by download operation)
+	_file?: {
+		path: string;
+		fileName: string;
+		mimeType: string;
+		size: number;
+	};
 	// Capabilities
 	_capabilities: {
 		canDownload: boolean;
@@ -1040,9 +1050,24 @@ export class IManage implements INodeType {
 						const doc = transformDocument(rawData, credentials.baseUrl, customerId || '');
 						const fileName = `${doc.name || documentId}.${doc.extension || 'bin'}`;
 						const mimeType = getMimeType(doc.extension);
+						const fileBuffer = Buffer.from(response.body as Buffer);
+
+						// Write file to temp directory
+						const tempDir = join(tmpdir(), 'n8n-imanage');
+						await mkdir(tempDir, { recursive: true });
+						const filePath = join(tempDir, `${doc.documentNumber}_${doc.version}_${fileName}`);
+						await writeFile(filePath, fileBuffer);
+
+						// Add file info to document object
+						doc._file = {
+							path: filePath,
+							fileName,
+							mimeType,
+							size: fileBuffer.length,
+						};
 
 						const binaryData = await this.helpers.prepareBinaryData(
-							Buffer.from(response.body as Buffer),
+							fileBuffer,
 							fileName,
 							mimeType,
 						);
